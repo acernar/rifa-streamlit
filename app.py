@@ -14,7 +14,7 @@ PRECIO_TICKET = 10
 ADMIN_PASSWORD = "admin123"
 HORAS_RESERVA = 24
 
-SHEET_NAME = "Rifa Promoción 2026"  # nombre EXACTO del archivo
+SHEET_ID = "1_kiS4BeYT80GfmyrHhhCyycPcNmmC1SDOAfR1K4JjT8" # nombre EXACTO del archivo
 
 RANGOS = [
     (121, 140),
@@ -34,8 +34,7 @@ def conectar_sheet():
         scopes=["https://www.googleapis.com/auth/spreadsheets"],
     )
     client = gspread.authorize(creds)
-    return client.open(SHEET_NAME).sheet1
-
+    return client.open_by_key(SHEET_ID).sheet1
 
 def cargar_data():
     sheet = conectar_sheet()
