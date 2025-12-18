@@ -1,0 +1,233 @@
+import streamlit as st
+import pandas as pd
+import os
+from datetime import datetime, timedelta
+from io import BytesIO
+
+# =============================
+# CONFIGURACIÓN GENERAL
+# =============================
+st.set_page_config(layout="wide")
+
+TITULO = "🎟️ RIFA – Selección de Números"
+PRECIO_TICKET = 10
+ADMIN_PASSWORD = "admin123"
+HORAS_RESERVA = 24
+
+RANGOS = [
+    (121, 140),
+    (1561, 1580),
+    (1586, 1605),
+    (1696, 1715),
+    (1771, 1790),
+    (2036, 2060)
+]
+
+DATA_FILE = "data/rifa.xlsx"
+
+# =============================
+# FUNCIONES
+# =============================
+def generar_todos_los_numeros():
+    nums = []
+    for a, b in RANGOS:
+        nums.extend(range(a, b + 1))
+    return nums
+
+
+def cargar_data():
+    if not os.path.exists("data"):
+        os.makedirs("data")
+
+    if not os.path.exists(DATA_FILE):
+        df = pd.DataFrame(columns=["Nombre", "Numero", "Estado", "Fecha"])
+        df.to_excel(DATA_FILE, index=False)
+        return df
+
+    df = pd.read_excel(DATA_FILE)
+
+    if "Fecha" not in df.columns:
+        df["Fecha"] = datetime.now()
+
+    return df
+
+
+def guardar_data(df):
+    df.to_excel(DATA_FILE, index=False)
+
+
+def limpiar_reservas_vencidas(df):
+    if df.empty:
+        return df
+
+    ahora = datetime.now()
+    df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce")
+
+    mask = (
+        (df["Estado"] == "RESERVADO") &
+        (df["Fecha"] < ahora - timedelta(hours=HORAS_RESERVA))
+    )
+    return df[~mask]
+
+
+def generar_reporte_whatsapp(df):
+    total_tickets = len(generar_todos_los_numeros())
+    vendidos = df[df["Estado"] == "PAGÓ"]
+    reservados = df[df["Estado"] == "RESERVADO"]
+    disponibles = total_tickets - len(df)
+    total_recaudado = len(vendidos) * PRECIO_TICKET
+
+    msg = (
+        "📢 *REPORTE RIFA – PROMOCIÓN 2026*\n\n"
+        f"🎟️ Total de tickets: {total_tickets}\n"
+        f"✅ Vendidos (PAGÓ): {len(vendidos)}\n"
+        f"⏳ Reservados: {len(reservados)}\n"
+        f"🟢 Disponibles: {disponibles}\n"
+        f"💰 Total recaudado: S/ {total_recaudado}\n\n"
+        "📋 *Detalle por participante*\n"
+    )
+
+    for nombre, grupo in df.groupby("Nombre"):
+        numeros = ", ".join(map(str, sorted(grupo["Numero"].tolist())))
+        estado = grupo["Estado"].iloc[0]
+        msg += (
+            f"• {nombre}\n"
+            f"  Rifas: {numeros}\n"
+            f"  Estado: {estado}\n\n"
+        )
+
+    msg += f"📌 *Actualizado al:* {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    return msg
+
+# =============================
+# SESSION STATE
+# =============================
+if "seleccionados" not in st.session_state:
+    st.session_state.seleccionados = set()
+if "nombre" not in st.session_state:
+    st.session_state.nombre = ""
+if "cantidad" not in st.session_state:
+    st.session_state.cantidad = 1
+if "confirmado" not in st.session_state:
+    st.session_state.confirmado = False
+
+# =============================
+# CARGA DE DATOS
+# =============================
+df = cargar_data()
+df = limpiar_reservas_vencidas(df)
+guardar_data(df)
+
+ocupados = set(df["Numero"].tolist())
+
+# =============================
+# UI PRINCIPAL
+# =============================
+st.title(TITULO)
+
+vendidos = len(df[df["Estado"] == "PAGÓ"])
+reservados = len(df[df["Estado"] == "RESERVADO"])
+total_vendido = vendidos * PRECIO_TICKET
+
+c1, c2, c3 = st.columns(3)
+c1.metric("🎟️ Vendidos", vendidos)
+c2.metric("⏳ Reservados", reservados)
+c3.metric("💰 Total vendido", f"S/ {total_vendido}")
+
+st.markdown("---")
+
+# =============================
+# FORMULARIO PARTICIPANTE
+# =============================
+st.subheader("👤 Datos del participante")
+st.text_input("Nombre completo", key="nombre")
+st.number_input("Cantidad de tickets", 1, 20, key="cantidad")
+
+st.info(f"Seleccionados: {len(st.session_state.seleccionados)} / {st.session_state.cantidad}")
+
+# =============================
+# BOTONES NÚMEROS
+# =============================
+def boton(num):
+    if num in ocupados:
+        st.button(f"🔴 {num}", disabled=True)
+    elif num in st.session_state.seleccionados:
+        if st.button(f"🔵 {num}"):
+            st.session_state.seleccionados.remove(num)
+    else:
+        if len(st.session_state.seleccionados) >= st.session_state.cantidad:
+            st.button(f"⚪ {num}", disabled=True)
+        else:
+            if st.button(f"🟢 {num}"):
+                st.session_state.seleccionados.add(num)
+
+st.subheader("📋 Selecciona tus números")
+for a, b in RANGOS:
+    st.markdown(f"### 🔢 Rango {a:04d} – {b:04d}")
+    cols = st.columns(10)
+    for i, n in enumerate(range(a, b + 1)):
+        with cols[i % 10]:
+            boton(n)
+
+# =============================
+# RESUMEN Y CONFIRMACIÓN
+# =============================
+st.markdown("---")
+numeros = sorted(st.session_state.seleccionados)
+monto = len(numeros) * PRECIO_TICKET
+
+st.write(f"👤 **{st.session_state.nombre}**")
+st.write(f"🎟️ **Números:** {', '.join(map(str, numeros))}")
+st.write(f"💰 **Monto:** S/ {monto}")
+
+if st.session_state.nombre and len(numeros) == st.session_state.cantidad and not st.session_state.confirmado:
+    if st.button("✅ CONFIRMAR RESERVA"):
+        nuevos = pd.DataFrame({
+            "Nombre": [st.session_state.nombre] * len(numeros),
+            "Numero": numeros,
+            "Estado": "RESERVADO",
+            "Fecha": [datetime.now()] * len(numeros)
+        })
+        df = pd.concat([df, nuevos], ignore_index=True)
+        guardar_data(df)
+        st.session_state.confirmado = True
+
+# =============================
+# PANEL ADMINISTRADOR
+# =============================
+st.markdown("---")
+st.subheader("🔐 Panel Administrador")
+
+pwd = st.text_input("Contraseña de administrador", type="password")
+
+if pwd == ADMIN_PASSWORD:
+    st.success("Acceso concedido")
+
+    st.subheader("📋 Control de tickets")
+    st.dataframe(df, use_container_width=True)
+
+    st.subheader("✏️ Cambiar estado de pago")
+    fila = st.number_input(
+        "Fila a modificar",
+        min_value=0,
+        max_value=len(df) - 1 if len(df) > 0 else 0,
+        step=1
+    )
+
+    nuevo_estado = st.selectbox(
+        "Nuevo estado",
+        ["RESERVADO", "PAGÓ", "DEBE"]
+    )
+
+    if st.button("Actualizar estado"):
+        df.at[fila, "Estado"] = nuevo_estado
+        guardar_data(df)
+        st.success("Estado actualizado correctamente")
+        st.rerun()
+
+    st.subheader("📱 Reporte final para WhatsApp")
+    st.text_area(
+        "Copiar y pegar en WhatsApp",
+        generar_reporte_whatsapp(df),
+        height=300
+    )
