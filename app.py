@@ -14,7 +14,7 @@ PRECIO_TICKET = 10
 ADMIN_PASSWORD = "admin123"
 HORAS_RESERVA = 24
 
-SHEET_NAME = "Rifa Promoción 2026"   # nombre EXACTO del archivo
+SHEET_NAME = "Rifa Promoción 2026"  # nombre EXACTO del archivo
 
 RANGOS = [
     (121, 140),
@@ -62,7 +62,7 @@ def cargar_data():
 def guardar_data(df):
     sheet = conectar_sheet()
     sheet.clear()
-    sheet.update([df.columns.values.tolist()] + df.astype(str).values.tolist())
+    sheet.update([df.columns.tolist()] + df.astype(str).values.tolist())
 
 
 # =============================
@@ -157,7 +157,7 @@ df = cargar_data()
 df = limpiar_reservas_vencidas(df)
 guardar_data(df)
 
-ocupados = set(df["Numero"].tolist())
+ocupados = set(df["Numero"].dropna().astype(int).tolist())
 
 # =============================
 # UI PRINCIPAL
