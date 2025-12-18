@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 from datetime import datetime, timedelta
-from io import BytesIO
 
 # =============================
 # CONFIGURACIÓN GENERAL
@@ -26,13 +25,40 @@ RANGOS = [
 DATA_FILE = "data/rifa.xlsx"
 
 # =============================
-# FUNCIONES
+# FUNCIONES UTILITARIAS
 # =============================
 def generar_todos_los_numeros():
     nums = []
     for a, b in RANGOS:
         nums.extend(range(a, b + 1))
     return nums
+
+
+def parsear_numeros(input_texto):
+    numeros = set()
+
+    if not input_texto:
+        return []
+
+    partes = input_texto.split(",")
+
+    for parte in partes:
+        parte = parte.strip()
+
+        if "-" in parte:
+            try:
+                inicio, fin = parte.split("-")
+                for n in range(int(inicio), int(fin) + 1):
+                    numeros.add(n)
+            except:
+                pass
+        else:
+            try:
+                numeros.add(int(parte))
+            except:
+                pass
+
+    return sorted(numeros)
 
 
 def cargar_data():
@@ -72,7 +98,7 @@ def limpiar_reservas_vencidas(df):
 
 def generar_reporte_whatsapp(df):
     total_tickets = len(generar_todos_los_numeros())
-    vendidos = df[df["Estado"] == "PAGÓ"]
+    vendidos = df[df["Estado"] == "PAGADO"]
     reservados = df[df["Estado"] == "RESERVADO"]
     disponibles = total_tickets - len(df)
     total_recaudado = len(vendidos) * PRECIO_TICKET
@@ -80,7 +106,7 @@ def generar_reporte_whatsapp(df):
     msg = (
         "📢 *REPORTE RIFA – PROMOCIÓN 2026*\n\n"
         f"🎟️ Total de tickets: {total_tickets}\n"
-        f"✅ Vendidos (PAGÓ): {len(vendidos)}\n"
+        f"✅ Pagados: {len(vendidos)}\n"
         f"⏳ Reservados: {len(reservados)}\n"
         f"🟢 Disponibles: {disponibles}\n"
         f"💰 Total recaudado: S/ {total_recaudado}\n\n"
@@ -99,6 +125,7 @@ def generar_reporte_whatsapp(df):
     msg += f"📌 *Actualizado al:* {datetime.now().strftime('%d/%m/%Y %H:%M')}"
     return msg
 
+
 # =============================
 # SESSION STATE
 # =============================
@@ -110,6 +137,7 @@ if "cantidad" not in st.session_state:
     st.session_state.cantidad = 1
 if "confirmado" not in st.session_state:
     st.session_state.confirmado = False
+
 
 # =============================
 # CARGA DE DATOS
@@ -125,12 +153,12 @@ ocupados = set(df["Numero"].tolist())
 # =============================
 st.title(TITULO)
 
-vendidos = len(df[df["Estado"] == "PAGÓ"])
+vendidos = len(df[df["Estado"] == "PAGADO"])
 reservados = len(df[df["Estado"] == "RESERVADO"])
 total_vendido = vendidos * PRECIO_TICKET
 
 c1, c2, c3 = st.columns(3)
-c1.metric("🎟️ Vendidos", vendidos)
+c1.metric("🎟️ Pagados", vendidos)
 c2.metric("⏳ Reservados", reservados)
 c3.metric("💰 Total vendido", f"S/ {total_vendido}")
 
@@ -143,10 +171,12 @@ st.subheader("👤 Datos del participante")
 st.text_input("Nombre completo", key="nombre")
 st.number_input("Cantidad de tickets", 1, 20, key="cantidad")
 
-st.info(f"Seleccionados: {len(st.session_state.seleccionados)} / {st.session_state.cantidad}")
+st.info(
+    f"Seleccionados: {len(st.session_state.seleccionados)} / {st.session_state.cantidad}"
+)
 
 # =============================
-# BOTONES NÚMEROS
+# BOTONES DE NÚMEROS
 # =============================
 def boton(num):
     if num in ocupados:
@@ -160,6 +190,7 @@ def boton(num):
         else:
             if st.button(f"🟢 {num}"):
                 st.session_state.seleccionados.add(num)
+
 
 st.subheader("📋 Selecciona tus números")
 for a, b in RANGOS:
@@ -180,17 +211,24 @@ st.write(f"👤 **{st.session_state.nombre}**")
 st.write(f"🎟️ **Números:** {', '.join(map(str, numeros))}")
 st.write(f"💰 **Monto:** S/ {monto}")
 
-if st.session_state.nombre and len(numeros) == st.session_state.cantidad and not st.session_state.confirmado:
+if (
+    st.session_state.nombre
+    and len(numeros) == st.session_state.cantidad
+    and not st.session_state.confirmado
+):
     if st.button("✅ CONFIRMAR RESERVA"):
-        nuevos = pd.DataFrame({
-            "Nombre": [st.session_state.nombre] * len(numeros),
-            "Numero": numeros,
-            "Estado": "RESERVADO",
-            "Fecha": [datetime.now()] * len(numeros)
-        })
+        nuevos = pd.DataFrame(
+            {
+                "Nombre": [st.session_state.nombre] * len(numeros),
+                "Numero": numeros,
+                "Estado": "RESERVADO",
+                "Fecha": [datetime.now()] * len(numeros),
+            }
+        )
         df = pd.concat([df, nuevos], ignore_index=True)
         guardar_data(df)
         st.session_state.confirmado = True
+        st.rerun()
 
 # =============================
 # PANEL ADMINISTRADOR
@@ -206,28 +244,47 @@ if pwd == ADMIN_PASSWORD:
     st.subheader("📋 Control de tickets")
     st.dataframe(df, use_container_width=True)
 
-    st.subheader("✏️ Cambiar estado de pago")
-    fila = st.number_input(
-        "Fila a modificar",
-        min_value=0,
-        max_value=len(df) - 1 if len(df) > 0 else 0,
-        step=1
+    st.subheader("✏️ Cambiar estado por número de ticket")
+
+    input_numeros = st.text_input(
+        "Números de ticket (comas o rangos con guion)",
+        placeholder="Ej: 121,131,1561-1580",
     )
 
-    nuevo_estado = st.selectbox(
-        "Nuevo estado",
-        ["RESERVADO", "PAGÓ", "DEBE"]
-    )
+    nuevo_estado = st.selectbox("Nuevo estado", ["RESERVADO", "PAGADO"])
 
     if st.button("Actualizar estado"):
-        df.at[fila, "Estado"] = nuevo_estado
-        guardar_data(df)
-        st.success("Estado actualizado correctamente")
-        st.rerun()
+        lista_numeros = parsear_numeros(input_numeros)
+
+        if not lista_numeros:
+            st.warning("No se ingresaron números válidos.")
+        else:
+            encontrados = []
+            no_encontrados = []
+
+            for n in lista_numeros:
+                idx = df.index[df["Numero"] == n].tolist()
+                if idx:
+                    df.loc[idx, "Estado"] = nuevo_estado
+                    encontrados.append(n)
+                else:
+                    no_encontrados.append(n)
+
+            guardar_data(df)
+
+            if encontrados:
+                st.success(
+                    f"Estado actualizado a **{nuevo_estado}** para: {encontrados}"
+                )
+
+            if no_encontrados:
+                st.info(f"No se encontraron estos números: {no_encontrados}")
+
+            st.rerun()
 
     st.subheader("📱 Reporte final para WhatsApp")
     st.text_area(
-        "Copiar y pegar en WhatsApp",
+        "Copiar y pegar",
         generar_reporte_whatsapp(df),
-        height=300
+        height=300,
     )
