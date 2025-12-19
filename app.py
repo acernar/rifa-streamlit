@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -133,7 +134,7 @@ st.info(
 )
 
 # =============================
-# BOTONES (ESTABLES)
+# BOTONES
 # =============================
 def boton(num):
     if num in ocupados:
@@ -173,14 +174,14 @@ st.write(f"🎟️ **Números:** {', '.join(map(str, numeros))}")
 st.write(f"💰 **Monto:** S/ {monto}")
 
 # =============================
-# CONFIRMAR (ESCRIBE EN SHEET)
+# CONFIRMAR (SOLO CAMBIO: HORA)
 # =============================
 if (
     st.session_state.nombre
     and len(numeros) == st.session_state.cantidad
 ):
     if st.button("✅ CONFIRMAR RESERVA"):
-        ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ahora = datetime.now(ZoneInfo("America/Lima")).strftime("%d/%m/%Y %H:%M")
         filas = [
             [st.session_state.nombre, n, "RESERVADO", ahora]
             for n in numeros
@@ -193,7 +194,7 @@ if (
         st.rerun()
 
 # =============================
-# PANEL ADMINISTRADOR (ORIGINAL)
+# PANEL ADMINISTRADOR
 # =============================
 st.markdown("---")
 st.subheader("🔐 Panel Administrador")
