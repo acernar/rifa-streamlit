@@ -166,7 +166,10 @@ for a, b in RANGOS:
 # RESUMEN
 # =============================
 st.markdown("---")
-numeros = sorted(st.session_state.seleccionados)
+
+# 🔒 recalcular SIEMPRE desde session_state ya consolidado
+numeros = list(st.session_state.seleccionados)
+numeros.sort()
 monto = len(numeros) * PRECIO_TICKET
 
 st.write(f"👤 **{st.session_state.nombre}**")
