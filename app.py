@@ -4,9 +4,9 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
-# =============================
+# ======================================================
 # CONFIGURACIÓN GENERAL
-# =============================
+# ======================================================
 st.set_page_config(layout="wide")
 
 TITULO = "🎟️ RIFA – Selección de Números"
@@ -25,9 +25,9 @@ RANGOS = [
 SHEET_ID = "1_kiS4BeYT80GfmyrHhhCyycPcNmmC1SDOAfR1K4JjT8"
 SHEET_NAME = "Hoja 1"
 
-# =============================
-# GOOGLE SHEETS (CONEXIÓN)
-# =============================
+# ======================================================
+# GOOGLE SHEETS
+# ======================================================
 @st.cache_resource
 def conectar_sheet():
     creds = Credentials.from_service_account_info(
@@ -37,30 +37,38 @@ def conectar_sheet():
     client = gspread.authorize(creds)
     return client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
 
-# =============================
-# DATA
-# =============================
+
 def cargar_data():
     sheet = conectar_sheet()
     data = sheet.get_all_records()
-
     if not data:
         return pd.DataFrame(columns=["Nombre", "Numero", "Estado", "Fecha"])
-
-    df = pd.DataFrame(data)
-    df["Numero"] = df["Numero"].astype(int)
-    return df
+    return pd.DataFrame(data)
 
 
 def guardar_filas(filas):
     sheet = conectar_sheet()
     sheet.append_rows(filas, value_input_option="USER_ENTERED")
 
-# =============================
+
+# ======================================================
+# UTILIDADES
+# ======================================================
+def todos_los_numeros():
+    nums = []
+    for a, b in RANGOS:
+        nums.extend(range(a, b + 1))
+    return nums
+
+
+# ======================================================
 # SESSION STATE
-# =============================
+# ======================================================
 if "seleccionados" not in st.session_state:
     st.session_state.seleccionados = set()
+
+if "accion_pendiente" not in st.session_state:
+    st.session_state.accion_pendiente = None
 
 if "nombre" not in st.session_state:
     st.session_state.nombre = ""
@@ -68,15 +76,21 @@ if "nombre" not in st.session_state:
 if "cantidad" not in st.session_state:
     st.session_state.cantidad = 1
 
-# =============================
-# CARGA INICIAL
-# =============================
+
+# ======================================================
+# CARGA DE DATOS
+# ======================================================
 df = cargar_data()
+
+if not df.empty:
+    df["Numero"] = df["Numero"].astype(int)
+
 ocupados = set(df["Numero"].tolist())
 
-# =============================
+
+# ======================================================
 # UI PRINCIPAL
-# =============================
+# ======================================================
 st.title(TITULO)
 
 pagados = len(df[df["Estado"] == "PAGADO"])
@@ -90,9 +104,9 @@ c3.metric("💰 Total vendido", f"S/ {total_vendido}")
 
 st.markdown("---")
 
-# =============================
+# ======================================================
 # DATOS PARTICIPANTE
-# =============================
+# ======================================================
 st.subheader("👤 Datos del participante")
 st.text_input("Nombre completo", key="nombre")
 st.number_input("Cantidad de tickets", min_value=1, max_value=20, key="cantidad")
@@ -101,35 +115,40 @@ st.info(
     f"Seleccionados: {len(st.session_state.seleccionados)} / {st.session_state.cantidad}"
 )
 
-# =============================
-# BOTONES (UX CORRECTA)
-# =============================
+# ======================================================
+# BOTONES DE NÚMEROS (ESTABLE)
+# ======================================================
 def boton(num):
-    key = f"btn_{num}"
+    key = f"num_{num}"
 
-    # Ocupado
-    if num in ocupados:
-        st.button(f"🔴 {num}", key=key)
-        return
+    seleccionado = num in st.session_state.seleccionados
+    ocupado = num in ocupados
+    limite = len(st.session_state.seleccionados) >= st.session_state.cantidad
 
-    # Seleccionado (se puede quitar)
-    if num in st.session_state.seleccionados:
-        if st.button(f"🔵 {num}", key=key):
-            st.session_state.seleccionados.remove(num)
-        return
+    if ocupado:
+        label = f"🔴 {num}"
+    elif seleccionado:
+        label = f"🔵 {num}"
+    elif limite:
+        label = f"⚪ {num}"
+    else:
+        label = f"🟢 {num}"
 
-    # Límite alcanzado → visible pero no seleccionable
-    if len(st.session_state.seleccionados) >= st.session_state.cantidad:
-        st.button(f"⚪ {num}", key=key)
-        return
+    if st.button(label, key=key):
+        if ocupado:
+            return
 
-    # Disponible
-    if st.button(f"🟢 {num}", key=key):
-        st.session_state.seleccionados.add(num)
+        if seleccionado:
+            st.session_state.accion_pendiente = ("remove", num)
+        elif not limite:
+            st.session_state.accion_pendiente = ("add", num)
+        else:
+            st.warning(
+                f"Solo puedes seleccionar {st.session_state.cantidad} número(s).",
+                icon="⚠️",
+            )
 
-# =============================
-# GRID DE NÚMEROS
-# =============================
+
 st.subheader("📋 Selecciona tus números")
 
 for a, b in RANGOS:
@@ -139,9 +158,25 @@ for a, b in RANGOS:
         with cols[i % 10]:
             boton(n)
 
-# =============================
+
+# ======================================================
+# APLICAR ACCIÓN (UNA SOLA VEZ)
+# ======================================================
+if st.session_state.accion_pendiente:
+    accion, num = st.session_state.accion_pendiente
+
+    if accion == "add":
+        st.session_state.seleccionados.add(num)
+    elif accion == "remove":
+        st.session_state.seleccionados.remove(num)
+
+    st.session_state.accion_pendiente = None
+    st.rerun()
+
+
+# ======================================================
 # RESUMEN
-# =============================
+# ======================================================
 st.markdown("---")
 numeros = sorted(st.session_state.seleccionados)
 monto = len(numeros) * PRECIO_TICKET
@@ -150,9 +185,10 @@ st.write(f"👤 **{st.session_state.nombre}**")
 st.write(f"🎟️ **Números:** {', '.join(map(str, numeros))}")
 st.write(f"💰 **Monto:** S/ {monto}")
 
-# =============================
-# CONFIRMAR (ÚNICO WRITE)
-# =============================
+
+# ======================================================
+# CONFIRMAR RESERVA (ÚNICA ESCRITURA)
+# ======================================================
 if (
     st.session_state.nombre
     and len(numeros) == st.session_state.cantidad
@@ -164,7 +200,7 @@ if (
         for n in numeros:
             filas.append([
                 st.session_state.nombre,
-                n,
+                int(n),
                 "RESERVADO",
                 ahora,
             ])
@@ -172,16 +208,18 @@ if (
         guardar_filas(filas)
 
         st.success("Reserva registrada correctamente")
+
         st.session_state.seleccionados = set()
         st.rerun()
 
-# =============================
-# ADMIN
-# =============================
+
+# ======================================================
+# PANEL ADMIN
+# ======================================================
 st.markdown("---")
 st.subheader("🔐 Panel Administrador")
 
-pwd = st.text_input("Contraseña de administrador", type="password")
+pwd = st.text_input("Contraseña", type="password")
 
 if pwd == ADMIN_PASSWORD:
     st.success("Acceso concedido")
