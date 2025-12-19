@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -12,9 +12,6 @@ st.set_page_config(layout="wide")
 TITULO = "🎟️ RIFA – Selección de Números"
 PRECIO_TICKET = 10
 ADMIN_PASSWORD = "admin123"
-
-# Zona horaria Perú (GMT-5)
-TZ_PERU = timezone(timedelta(hours=-5))
 
 RANGOS = [
     (121, 140),
@@ -49,7 +46,7 @@ def cargar_data():
     return pd.DataFrame(data)
 
 
-def append_filas(filas):
+def guardar_filas(filas):
     sheet = conectar_sheet()
     sheet.append_rows(filas, value_input_option="USER_ENTERED")
 
@@ -58,55 +55,36 @@ def actualizar_estado(numeros, nuevo_estado):
     sheet = conectar_sheet()
     data = sheet.get_all_values()
 
-    if len(data) <= 1:
-        return 0
-
-    header = data[0]
-    filas = data[1:]
     cambios = 0
-
-    for i, fila in enumerate(filas, start=2):
+    for i in range(1, len(data)):
         try:
-            numero = int(fila[1])
+            num = int(data[i][1])  # Columna Numero (B)
         except:
             continue
 
-        if numero in numeros:
-            sheet.update(f"C{i}", nuevo_estado)
+        if num in numeros:
+            sheet.update(f"C{i+1}", [[nuevo_estado]])
             cambios += 1
 
     return cambios
 
+
 # =============================
 # UTILIDADES
 # =============================
-def todos_los_numeros():
-    nums = []
-    for a, b in RANGOS:
-        nums.extend(range(a, b + 1))
-    return nums
-
-
 def parsear_numeros(texto):
-    resultado = set()
-    if not texto:
-        return []
-
+    nums = set()
     for parte in texto.split(","):
         parte = parte.strip()
+        if not parte:
+            continue
         if "-" in parte:
-            try:
-                a, b = map(int, parte.split("-"))
-                resultado.update(range(a, b + 1))
-            except:
-                pass
+            a, b = parte.split("-")
+            nums.update(range(int(a), int(b) + 1))
         else:
-            try:
-                resultado.add(int(parte))
-            except:
-                pass
+            nums.add(int(parte))
+    return sorted(nums)
 
-    return sorted(resultado)
 
 # =============================
 # SESSION STATE
@@ -120,8 +98,9 @@ if "nombre" not in st.session_state:
 if "cantidad" not in st.session_state:
     st.session_state.cantidad = 1
 
+
 # =============================
-# CARGA DATOS
+# CARGA INICIAL
 # =============================
 df = cargar_data()
 ocupados = set(df["Numero"].astype(int).tolist())
@@ -154,7 +133,7 @@ st.info(
 )
 
 # =============================
-# BOTONES
+# BOTONES (ESTABLES)
 # =============================
 def boton(num):
     if num in ocupados:
@@ -194,29 +173,27 @@ st.write(f"🎟️ **Números:** {', '.join(map(str, numeros))}")
 st.write(f"💰 **Monto:** S/ {monto}")
 
 # =============================
-# CONFIRMAR
+# CONFIRMAR (ESCRIBE EN SHEET)
 # =============================
-if st.session_state.nombre and len(numeros) == st.session_state.cantidad:
-    if st.button("✅ CONFIRMAR"):
-        ahora = datetime.now(TZ_PERU).strftime("%Y-%m-%d %H:%M:%S")
-        filas = []
+if (
+    st.session_state.nombre
+    and len(numeros) == st.session_state.cantidad
+):
+    if st.button("✅ CONFIRMAR RESERVA"):
+        ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        filas = [
+            [st.session_state.nombre, n, "RESERVADO", ahora]
+            for n in numeros
+        ]
 
-        for n in numeros:
-            filas.append([
-                st.session_state.nombre,
-                int(n),
-                "RESERVADO",
-                ahora,
-            ])
-
-        append_filas(filas)
+        guardar_filas(filas)
+        st.success("Reserva registrada correctamente")
 
         st.session_state.seleccionados = set()
-        st.success("Reserva registrada correctamente")
         st.rerun()
 
 # =============================
-# PANEL ADMIN
+# PANEL ADMINISTRADOR (ORIGINAL)
 # =============================
 st.markdown("---")
 st.subheader("🔐 Panel Administrador")
@@ -228,22 +205,38 @@ if pwd == ADMIN_PASSWORD:
 
     st.dataframe(df, use_container_width=True)
 
-    st.subheader("✏️ Cambiar estado por número")
-
-    txt_nums = st.text_input(
-        "Números (ej: 1577,1579,1600-1605)"
-    )
-
-    nuevo_estado = st.selectbox(
-        "Nuevo estado",
-        ["RESERVADO", "PAGADO"]
-    )
+    st.markdown("### ✏️ Cambiar estado por números")
+    nums_txt = st.text_input("Números (ej: 1577,1579,1600-1605)")
+    nuevo_estado = st.selectbox("Nuevo estado", ["RESERVADO", "PAGADO"])
 
     if st.button("Actualizar estado"):
-        lista = parsear_numeros(txt_nums)
+        lista = parsear_numeros(nums_txt)
         if not lista:
-            st.warning("No ingresaste números válidos")
+            st.warning("No se ingresaron números válidos")
         else:
             cambios = actualizar_estado(lista, nuevo_estado)
-            st.success(f"{cambios} tickets actualizados")
-            st.rerun()
+            if cambios:
+                st.success(f"{cambios} registros actualizados")
+                st.rerun()
+            else:
+                st.warning("No se encontró ningún número")
+
+    st.markdown("### 📱 Reporte WhatsApp")
+
+    def reporte_whatsapp(df):
+        msg = (
+            "📢 *REPORTE RIFA – PROMOCIÓN 2026*\n\n"
+            f"🎟️ Total: {len(df)}\n"
+            f"✅ Pagados: {len(df[df['Estado']=='PAGADO'])}\n"
+            f"⏳ Reservados: {len(df[df['Estado']=='RESERVADO'])}\n"
+            f"💰 Recaudado: S/ {len(df[df['Estado']=='PAGADO']) * PRECIO_TICKET}\n\n"
+        )
+
+        for nombre, g in df.groupby("Nombre"):
+            nums = ", ".join(map(str, g["Numero"]))
+            estado = g["Estado"].iloc[0]
+            msg += f"• {nombre}\n  {nums}\n  {estado}\n\n"
+
+        return msg
+
+    st.text_area("Copiar y pegar", reporte_whatsapp(df), height=300)
