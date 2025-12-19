@@ -26,7 +26,7 @@ SHEET_ID = "1_kiS4BeYT80GfmyrHhhCyycPcNmmC1SDOAfR1K4JjT8"
 SHEET_NAME = "Hoja 1"
 
 # =============================
-# GOOGLE SHEETS (SOLO CONEXIÓN)
+# GOOGLE SHEETS (CONEXIÓN)
 # =============================
 @st.cache_resource
 def conectar_sheet():
@@ -38,7 +38,7 @@ def conectar_sheet():
     return client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
 
 # =============================
-# DATA (LECTURA / ESCRITURA)
+# DATA
 # =============================
 def cargar_data():
     sheet = conectar_sheet()
@@ -57,16 +57,7 @@ def guardar_filas(filas):
     sheet.append_rows(filas, value_input_option="USER_ENTERED")
 
 # =============================
-# UTILIDADES
-# =============================
-def todos_los_numeros():
-    nums = []
-    for a, b in RANGOS:
-        nums.extend(range(a, b + 1))
-    return nums
-
-# =============================
-# SESSION STATE (UI PURA)
+# SESSION STATE
 # =============================
 if "seleccionados" not in st.session_state:
     st.session_state.seleccionados = set()
@@ -78,7 +69,7 @@ if "cantidad" not in st.session_state:
     st.session_state.cantidad = 1
 
 # =============================
-# CARGA DE DATOS (SOLO LECTURA)
+# CARGA INICIAL
 # =============================
 df = cargar_data()
 ocupados = set(df["Numero"].tolist())
@@ -111,28 +102,36 @@ st.info(
 )
 
 # =============================
-# BOTONES DE NÚMEROS (UI PURO)
+# BOTONES (UX CORRECTA)
 # =============================
 def boton(num):
     key = f"btn_{num}"
 
+    # Ocupado
     if num in ocupados:
-        st.button(f"🔴 {num}", key=key, disabled=True)
+        st.button(f"🔴 {num}", key=key)
         return
 
+    # Seleccionado (se puede quitar)
     if num in st.session_state.seleccionados:
         if st.button(f"🔵 {num}", key=key):
             st.session_state.seleccionados.remove(num)
         return
 
+    # Límite alcanzado → visible pero no seleccionable
     if len(st.session_state.seleccionados) >= st.session_state.cantidad:
-        st.button(f"⚪ {num}", key=key, disabled=True)
+        st.button(f"⚪ {num}", key=key)
         return
 
+    # Disponible
     if st.button(f"🟢 {num}", key=key):
         st.session_state.seleccionados.add(num)
 
+# =============================
+# GRID DE NÚMEROS
+# =============================
 st.subheader("📋 Selecciona tus números")
+
 for a, b in RANGOS:
     st.markdown(f"### 🔢 Rango {a:04d} – {b:04d}")
     cols = st.columns(10)
@@ -173,7 +172,6 @@ if (
         guardar_filas(filas)
 
         st.success("Reserva registrada correctamente")
-
         st.session_state.seleccionados = set()
         st.rerun()
 
